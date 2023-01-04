@@ -123,7 +123,13 @@ key_read(const char *name, const char *type)
     key	= PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
   else	/* do we really have to distinguish here?!?	*/
     key	= PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
-  /* XXX TODO XXX: we should be able to derive the public key from private key	*/
+  /* XXX TODO XXX: we should be able to derive the public key from private key
+   * Read:
+   * PEM_read_bio_PUBKEY() fails if it must read a Private Key.  But:
+   * PEM_read_bio_PrivateKey() returns a Private Key (at least that is what I see on OpenSSL 1.1.1f).
+   * So if _PUBKEY() fails we could retry with _PrivateKey as a last resort.
+   * But leave this as is, as a feature that you need to give the correct file.
+   */
   KO(!key, "cannot read", type);
   BIO_free(bio);
 
@@ -137,22 +143,53 @@ key_read(const char *name, const char *type)
         break;
     }
 
-  /* I found no proper way to check features of EVP_PKEY,
-   * except by reading them
+  /* I found no proper way to check features of EVP_PKEY, except by reading them.
+   *
+   * You must fully read them, as the NULL variant always returns success for unknown reason.
+   *
+   * Perhaps this is not needed at all as PEM_read_bio_PrivateKey() and PEM_read_bio_PUBKEY() already ensure this.
+   * But I did not find such a guarantee in the documentation.
    */
   if (type == PRIVKEY)
     {
       size_t len;
-      KO(1 != EVP_PKEY_get_raw_private_key(key, NULL, &len), "private key missing in:", name);
+      unsigned char *tmp;
+      KO(1 != EVP_PKEY_get_raw_private_key(key, NULL, &len), "private key missing in:", name);	/* cannot fail?!?	*/
+      tmp	= alloc(len);
+      KO(1 != EVP_PKEY_get_raw_private_key(key, tmp, &len), "private key missing in:", name);
+      OPENSSL_free(tmp);
+
       /* XXX TODO XXX issue a warning if no public key is found?	*/
+#if 0
+      /* succeeds even on the private key.
+       * Is this a guaranteed feature that when reading a private key
+       * the public key is available as well?  Always?
+       */
       KO(1 != EVP_PKEY_get_raw_public_key(key, NULL, &len), "public key missing in:", name);
+      tmp	= alloc(len);
+      KO(1 != EVP_PKEY_get_raw_public_key(key, tmp, &len), "public key missing in:", name);
+      OPENSSL_free(tmp);
+#endif
     }
   else
     {
       size_t len;
+      unsigned char *tmp;
       KO(1 != EVP_PKEY_get_raw_public_key(key, NULL, &len), "public key missing in:", name);
-      /* XXX TODO XXX issue a warning if a private key is found?	*/
+      tmp	= alloc(len);
+      KO(1 != EVP_PKEY_get_raw_public_key(key, tmp, &len), "public key missing in:", name);
+      OPENSSL_free(tmp);
+
+      /* XXX TODO XXX issue a warning if a private key is found?
+       *
+       * AFAICS this cannot happen, as PEM_read_bio_PUBKEY() above fails for private keys.
+       */
+#if 0
       KO(1 != EVP_PKEY_get_raw_private_key(key, NULL, &len), "private key missing in:", name);
+      tmp	= alloc(len);
+      KO(1 != EVP_PKEY_get_raw_private_key(key, tmp, &len), "XX private key missing in:", name);
+      OPENSSL_free(tmp);
+#endif
     }
   return key;
 }
