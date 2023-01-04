@@ -1,0 +1,7 @@
+.*.swp
+*~
+/.OLD/
+/.privkey.pem
+/.pubkey.pem
+/sig
+/example.txt
